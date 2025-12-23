@@ -115,6 +115,13 @@ class AppBuilder {
 
 	#jsHash;
 
+	/**
+	 * The current build
+	 * @type {Object}
+	 */
+
+	#currentBuild;
+
     /**
 	Validate a dir:
 	- Verify that the dir exists on the computer
@@ -162,17 +169,6 @@ class AppBuilder {
 			console.error ( error );
 			process.exitCode = ONE;
 			return;
-		}
-
-		this.#appBuilderJson.srcDir = this.#validateDir ( this.#appBuilderJson.srcDir );
-		if ( ! this.#appBuilderJson.srcDir ) {
-			console.error ( 'Invalid path for the --src parameter \x1b[31m%s\x1b[0m' );
-			process.exitCode = ONE;
-		}
-		this.#appBuilderJson.destDir = this.#validateDir ( this.#appBuilderJson.destDir );
-		if ( ! this.#appBuilderJson.destDir ) {
-			console.error ( 'Invalid path for the --dest parameter \x1b[31m%s\x1b[0m' );
-			process.exitCode = ONE;
 		}
 
 		process.exitCode = ZERO;
@@ -282,7 +278,7 @@ class AppBuilder {
 					fixTypes : [ 'directive', 'problem', 'suggestion', 'layout' ]
 				}
 			);
-			const results = await eslint.lintFiles (  this.#appBuilderJson.jsFiles );
+			const results = await eslint.lintFiles (  this.#appBuilderJson.ESLintFiles );
 			await ESLint.outputFixes ( results );
 			const formatter = await eslint.loadFormatter ( 'stylish' );
 			const resultText = formatter.format ( results );
@@ -311,10 +307,10 @@ class AppBuilder {
 
 	async #runRollup ( ) {
 		console.error ( '\nRunning Rollup' );
-		const bundle = await rollup ( { input : this.#packageJson.main } );
+		const bundle = await rollup ( { input : this.#currentBuild.srcDir + this.#currentBuild.jsFile } );
 		await bundle.write (
 			{
-				file : this.#tmpDir + this.#packageJson.name + '.js',
+				file : this.#tmpDir + this.#currentBuild.name + '.js',
 				format : 'iife'
 			}
 		);
@@ -354,7 +350,7 @@ class AppBuilder {
 			'\n * \n */\n\n';
 
 		let result = await minify (
-			fs.readFileSync ( this.#tmpDir + this.#packageJson.name + '.js', 'utf8' ),
+			fs.readFileSync ( this.#tmpDir + this.#currentBuild.name + '.js', 'utf8' ),
 			{
 				format : { preamble : preamble },
 				mangle : true,
@@ -369,7 +365,7 @@ class AppBuilder {
 			.digest ( 'base64' );
 
 		fs.writeFileSync (
-			this.#appBuilderJson.destDir + this.#packageJson.name + '.min.js',
+			this.#currentBuild.destDir + this.#currentBuild.name + '.min.js',
 			result.code,
 			'utf8'
 		);
@@ -400,13 +396,16 @@ class AppBuilder {
 	 */
 
 	#buildStyles ( ) {
+		if ( 0 === this.#currentBuild.cssFiles ) {
+			return;
+		}
 		console.error ( '\n\nBuilding CSS' );
 
 		let cssString = '';
 
-		this.#appBuilderJson.cssFiles.forEach (
+		this.#currentBuild.cssFiles.forEach (
 			cssFile => {
-				cssString += fs.readFileSync ( this.#appBuilderJson.srcDir + cssFile, 'utf8' );
+				cssString += fs.readFileSync ( this.#currentBuild.srcDir + cssFile, 'utf8' );
 			}
 		);
 
@@ -416,7 +415,7 @@ class AppBuilder {
 			.update ( cssString, 'utf8' )
 			.digest ( 'base64' );
 
-		fs.writeFileSync ( this.#appBuilderJson.destDir + this.#packageJson.name + '.min.css', cssString );
+		fs.writeFileSync ( this.#currentBuild.destDir + this.#currentBuild.name + '.min.css', cssString );
 	}
 
 	/**
@@ -427,32 +426,71 @@ class AppBuilder {
 	 */
 
 	#buildHTML ( ) {
+		if ( ! this.#currentBuild.htmlFile ) {
+			return;
+		}
+
 		console.error ( '\n\nBuilding HTML' );
 
-		let htmlString = fs.readFileSync ( this.#appBuilderJson.srcDir + 'index.html', 'utf8' );
+		let htmlString = fs.readFileSync ( this.#currentBuild.srcDir + this.#currentBuild.htmlFile, 'utf8' );
 
-		const scriptTag = '<script src="' + this.#packageJson.name + '.min.js' +
-		'" integrity="sha384-' + this.#jsHash + '" crossorigin="anonymous" ></script>';
-
-		const cssTag = '<link rel="stylesheet" href="' + this.#packageJson.name + '.min.css' +
-		'" integrity="sha384-' + this.#cssHash + '" crossorigin="anonymous" />';
+		if ( this.#jsHash ) {
+			const scriptTag = '<script src="' + this.#currentBuild.name + '.min.js' +
+			'" integrity="sha384-' + this.#jsHash + '" crossorigin="anonymous" ></script>';
+			htmlString =
+				htmlString.replaceAll ( RegExp ( '<script src="main.js" type="module"></script>', 'g' ), scriptTag )
+		}
+		if ( this.#cssHash ) {
+			const cssTag = '<link rel="stylesheet" href="' + this.#currentBuild.name + '.min.css' +
+			'" integrity="sha384-' + this.#cssHash + '" crossorigin="anonymous" />';
+			htmlString =
+				htmlString.replaceAll ( RegExp ( '<link rel="stylesheet" href="EncryptDecrypt.css" />', 'g' ), cssTag );
+		}
 
 		htmlString =
-			htmlString.replaceAll ( RegExp ( '<script src="main.js" type="module"></script>', 'g' ), scriptTag )
-				.replaceAll ( RegExp ( '<link rel="stylesheet" href="EncryptDecrypt.css" />', 'g' ), cssTag )
-				.replaceAll ( /<!--.*?-->/g, '' )
+			htmlString.replaceAll ( /<!--.*?-->/g, '' )
 				.replaceAll ( /\r\n|\r|\n/g, ' ' )
 				.replaceAll ( /\t/g, ' ' )
 				.replaceAll ( / {2,}/g, ' ' );
 
-		fs.writeFileSync ( this.#appBuilderJson.destDir + 'index.html', htmlString );
+		fs.writeFileSync ( this.#currentBuild.destDir + this.#currentBuild.htmlFile, htmlString );
+	}
+
+	/**
+	 * Coming soon
+	 */
+
+	async #buildCurrent ( ) {
+		this.#cssHash = null;
+		this.#jsHash = null;
+		this.#cleanTmp ( );
+		this.#currentBuild.srcDir = this.#validateDir ( this.#currentBuild.srcDir );
+		if ( ! this.#currentBuild.srcDir ) {
+			console.error ( 'Invalid path for the --src parameter \x1b[31m%s\x1b[0m' );
+			process.exitCode = ONE;
+		}
+		this.#currentBuild.destDir = this.#validateDir ( this.#currentBuild.destDir );
+		if ( ! this.#currentBuild.destDir ) {
+			console.error ( 'Invalid path for the --dest parameter \x1b[31m%s\x1b[0m' );
+			process.exitCode = ONE;
+		}
+		if ( ONE === process.exitCode ) {
+			return;
+		}
+
+		fs.mkdirSync ( this.#tmpDir );
+		await this.#runRollup ( );
+		await this.#runTerser ( );
+		this.#cleanTmp ( );
+		this.#buildStyles ( );
+		this.#buildHTML ( );
 	}
 
 	/**
 	 * Build the app
 	 */
 
-	async build ( ) {
+	async buildAll ( ) {
 
 		this.#readPackage ( );
 		if ( ONE === process.exitCode ) {
@@ -474,14 +512,9 @@ class AppBuilder {
 			return;
 		}
 
-		if ( ! this.#debug ) {
-			this.#cleanTmp ( );
-			fs.mkdirSync ( this.#tmpDir );
-			await this.#runRollup ( );
-			await this.#runTerser ( );
-			this.#cleanTmp ( );
-			this.#buildStyles ( );
-			this.#buildHTML ( );
+		for ( const build of  this.#appBuilderJson.builds ) {
+				this.#currentBuild = build; 
+				await this.#buildCurrent ( );
 		}
 
 		this.#end ( );
@@ -496,6 +529,6 @@ class AppBuilder {
 	}
 }
 
-new AppBuilder ( ).build ( );
+new AppBuilder ( ).buildAll ( );
 
 /* --- End of file --------------------------------------------------------------------------------------------------------- */
