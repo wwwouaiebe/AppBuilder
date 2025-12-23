@@ -1,0 +1,27 @@
+{
+    "type": "module",
+    "name": "AppBuilder",
+    "version": "1.0.0",
+    "description": "File encryptor",
+    "main": "AppBuilder.js",
+    "dependencies": {
+        "eslint": "latest",
+        "rollup": "latest",
+        "terser": "latest"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/wwwouaiebe/AppBuilder.git"
+    },
+    "scripts": {
+        "doc": "node ../ESSimpleDoc/bin/index.js --src=./src --dest=./docs/techDoc --validate=true"
+    },
+    "keywords": [],
+    "author": "wwwouaiebe",
+    "license": "GPL-3.0",
+    "bugs": {
+        "url": "https://github.com/wwwouaiebe/AppBuilder/issues"
+    },
+    "sources": "https://github.com/wwwouaiebe/AppBuilder",
+    "homepage": "https://github.com/wwwouaiebe/AppBuilder#readme"
+}
