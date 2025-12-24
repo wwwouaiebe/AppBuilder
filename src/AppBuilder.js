@@ -29,7 +29,7 @@ import crypto from 'crypto';
 import { ESLint } from 'eslint';
 import { rollup } from 'rollup';
 import { minify } from 'terser';
-
+import stylelint from "stylelint";
 /**
  * Simple constant for 0
  * @type {Number}
@@ -60,13 +60,6 @@ const MINUS_ONE = -1;
 class AppBuilder {
 
 	/**
-	 * The directory where the sources are
-	 * @type {String}
-	 */
-
-	#srcDir;
-
-	/**
 	 * A temporary directory
 	 * @type {String}
 	 */
@@ -78,7 +71,7 @@ class AppBuilder {
 	 * @type {Boolean}
 	 */
 
-	#debug;
+	#type;
 
 	/**
 	 * The start time of the build
@@ -137,21 +130,14 @@ class AppBuilder {
 			return null;
 		}
 
-		let pathSeparator = null;
 		try {
-			returnDir = fs.realpathSync ( returnDir );
-
-			// path.sep seems not working...
-			pathSeparator = MINUS_ONE === returnDir.indexOf ( '\\' ) ? '/' : '\\';
-			const lstat = fs.lstatSync ( returnDir );
-			if ( lstat.isFile ( ) ) {
-				return null;
+			if ( ! fs.existsSync ( returnDir ) ) {
+				fs.mkdirSync ( returnDir )
 			}
-
-			returnDir += pathSeparator;
-		    return returnDir;
+			return returnDir;
 		}
-		catch {
+		catch ( error ) {
+			console.error ( error );
 			return null;
 		}
 	}
@@ -177,10 +163,8 @@ class AppBuilder {
 			arg => {
 				const argContent = arg.split ( '=' );
 				switch ( argContent [ ZERO ] ) {
-				case '--debug' :
-					if ( 'true' === argContent [ ONE ] ) {
-						this.#debug = true;
-					}
+				case '--type' :
+					this.#type = argContent [ ONE ];
 					break;
 				default :
 					break;
@@ -252,6 +236,7 @@ class AppBuilder {
 		/* eslint-disable-next-line no-magic-numbers */
 		const execTime = String ( deltaTime / 1000000000n ) + '.' + String ( deltaTime % 1000000000n ).substring ( ZERO, 3 );
 		if ( ZERO === process.exitCode ) {
+			console.error ( `\n\x1b[36mTime taken ${execTime} seconds\n\n\x1b[0m` );
 			// eslint-disable-next-line max-len
 			console.error ( `\x1b[30;42m ${this.#packageJson.name} - ${this.#packageJson.version} - build ${this.#packageJson.buildNumber} - ${new Date ( ).toString ( )}\x1b[0m` );
 		}
@@ -266,6 +251,10 @@ class AppBuilder {
 	 */
 
 	async #runESLint ( ) {
+		if ( ( ! this.#appBuilderJson.ESLintFiles ) || ZERO === this.#appBuilderJson.ESLintFiles.length ) {
+			return;
+		}
+
 		console.error ( '\n\nRunning ESLint' );
 		try {
 			const eslint = new ESLint (
@@ -279,7 +268,11 @@ class AppBuilder {
 			const formatter = await eslint.loadFormatter ( 'stylish' );
 			const resultText = formatter.format ( results );
 			console.error ( resultText );
-			if ( MINUS_ONE !== resultText.indexOf ( 'error' ) ) {
+			let errorCount = 0
+			results.forEach ( 
+				result => errorCount += result.errorCount
+			);
+			if ( ZERO !== errorCount ) {
 				process.exitCode = ONE;
 			}
 		}
@@ -289,9 +282,45 @@ class AppBuilder {
 		}
 	}
 
+	/**
+	 * Run StyleLint
+	 */
+
+	async #runStyleLint ( ) {
+		if ( ( ! this.#appBuilderJson.styleLintFiles ) || ZERO === this.#appBuilderJson.styleLintFiles.length ) {
+			return;
+		}
+
+		console.error ( '\n\nRunning StyleLint' );
+
+		try {
+			const { default : rules }  = await import ( './StyleLintConfig.js' );
+			const result = await stylelint.lint(
+				{
+					files : this.#appBuilderJson.styleLintFiles,
+					config : rules,
+					formatter : 'string'
+				}
+			);
+			console.error ( result.report );
+			if ( MINUS_ONE !== result.report.indexOf ( 'error' ) ) {
+				process.exitCode = ONE;
+			}
+		}
+		catch ( error ) {
+			console.error ( error );
+			process.exitCode = ONE;
+		}
+
+	}
+
+	/**
+	 * Clean directories
+	 */
+
 	#cleanDirs ( ) {
 		console.error ( '\n\nCleaning dirs' );
-		this.#appBuilderJson.cleanDirs.forEach (
+		this.#currentTask.cleanDirs.forEach (
 			cleanDir => {
 				fs.rmSync ( cleanDir, { recursive : true, force : true } );
 				fs.mkdirSync ( cleanDir );
@@ -315,7 +344,7 @@ class AppBuilder {
 		console.error ( '\n\tRunning Rollup' );
 
 		try {
-			const bundle = await rollup ( { input : this.#currentTask.srcDir + this.#currentTask.jsFile } );
+			const bundle = await rollup ( { input : this.#currentTask.jsFile } );
 			await bundle.write (
 				{
 					file : this.#tmpDir + this.#currentTask.name + '.js',
@@ -421,11 +450,13 @@ class AppBuilder {
 
 			this.#currentTask.cssFiles.forEach (
 				cssFile => {
-					cssString += fs.readFileSync ( this.#currentTask.srcDir + cssFile, 'utf8' );
+					cssString += fs.readFileSync ( cssFile, 'utf8' );
 				}
 			);
 
-			cssString = this.#cleanCss ( cssString );
+			if ( 'release' === this.#type ) {
+				cssString = this.#cleanCss ( cssString );
+			}
 
 			this.#cssHash = crypto.createHash ( 'sha384' )
 				.update ( cssString, 'utf8' )
@@ -450,7 +481,7 @@ class AppBuilder {
 		console.error ( '\n\tBuilding HTML' );
 
 		try {
-			let htmlString = fs.readFileSync ( this.#currentTask.srcDir + this.#currentTask.htmlFile, 'utf8' );
+			let htmlString = fs.readFileSync ( this.#currentTask.htmlFile, 'utf8' );
 
 			if ( this.#jsHash ) {
 				const scriptTag = '<script src="' + this.#currentTask.name + '.min.js' +
@@ -471,7 +502,7 @@ class AppBuilder {
 					.replaceAll ( /\t/g, ' ' )
 					.replaceAll ( / {2,}/g, ' ' );
 
-			fs.writeFileSync ( this.#currentTask.destDir + this.#currentTask.htmlFile, htmlString );
+			fs.writeFileSync ( this.#currentTask.destDir + this.#currentTask.htmlFile.split ( '/') .pop ( ), htmlString );
 		}
 		catch ( error ) {
 			console.error ( error );
@@ -492,6 +523,8 @@ class AppBuilder {
 					if ( stat.isDirectory ( ) ) {
 						fs.cpSync ( fileDesc.src, fileDesc.dest, { recursive : true } );
 					} else if ( stat.isFile ( ) ) {
+						const dirDest = fileDesc.dest.slice ( 0, fileDesc.dest.lastIndexOf ( '/' ) + 1 );
+						fs.mkdirSync ( dirDest, { recursive : true } );
 						fs.copyFileSync ( fileDesc.src, fileDesc.dest );
 					}
 				}
@@ -508,16 +541,18 @@ class AppBuilder {
 	 */
 
 	async #buildTask ( ) {
+		if ( this.#type !== this.#currentTask.type ) {
+			return
+		}
+
+		if ( this.#currentTask.cleanDirs ) {
+			this.#cleanDirs ( );
+		}
 		console.error ( '\n\nBuilding task ' + this.#currentTask.name );
 		this.#cssHash = null;
 		this.#jsHash = null;
 		this.#cleanTmp ( );
 
-		this.#currentTask.srcDir = this.#validateDir ( this.#currentTask.srcDir );
-		if ( ! this.#currentTask.srcDir ) {
-			console.error ( 'Invalid path for the --src parameter \x1b[31m%s\x1b[0m' );
-			process.exitCode = ONE;
-		}
 		this.#currentTask.destDir = this.#validateDir ( this.#currentTask.destDir );
 		if ( ! this.#currentTask.destDir ) {
 			console.error ( 'Invalid path for the --dest parameter \x1b[31m%s\x1b[0m' );
@@ -528,7 +563,7 @@ class AppBuilder {
 			return;
 		}
 
-		if ( this.#currentTask.jsFile ) {
+		if ( this.#currentTask.jsFile) {
 			fs.mkdirSync ( this.#tmpDir );
 			await this.#runRollup ( );
 			if ( ONE === process.exitCode ) {
@@ -583,9 +618,13 @@ class AppBuilder {
 			return;
 		}
 
-		this.#cleanDirs ( );
-
 		await this.#runESLint ( );
+		if ( ONE === process.exitCode ) {
+			this.#end ( );
+			return;
+		}
+
+		await this.#runStyleLint ( );
 		if ( ONE === process.exitCode ) {
 			this.#end ( );
 			return;
