@@ -120,7 +120,7 @@ class AppBuilder {
 	 * @type {Object}
 	 */
 
-	#currentBuild;
+	#currentTask;
 
     /**
 	Validate a dir:
@@ -162,6 +162,8 @@ class AppBuilder {
 
 	#createConfig ( ) {
 
+		process.exitCode = ZERO;
+
 		try {
 			this.#appBuilderJson = JSON.parse ( fs.readFileSync ( './AppBuilder.json', 'utf8' ) );
 		}
@@ -171,7 +173,6 @@ class AppBuilder {
 			return;
 		}
 
-		process.exitCode = ZERO;
 		process.argv.forEach (
 			arg => {
 				const argContent = arg.split ( '=' );
@@ -193,22 +194,17 @@ class AppBuilder {
 	 */
 
 	#readPackage ( ) {
-		if ( fs.existsSync ( 'package.json' ) ) {
-			try {
-				this.#packageJson = JSON.parse ( fs.readFileSync ( 'package.json' ) );
-				this.#packageJson.buildNumber ++;
-				Object.freeze ( this.#packageJson );
-				return;
-			}
-			catch {
-				console.error ( '\n\x1b[31mAn error occurs when reading the package.json file\x1b[0m' );
-				process.exitCode = ONE;
-				return;
-			}
+		try {
+			this.#packageJson = JSON.parse ( fs.readFileSync ( 'package.json' ) );
+			this.#packageJson.buildNumber ++;
+			Object.freeze ( this.#packageJson );
+			return;
 		}
-
-		console.error ( '\n\x1b[31mThe file package.json is not found\x1b[0m' );
-		process.exitCode = ONE;
+		catch ( error ) {
+			console.error ( error );
+			process.exitCode = ONE;
+			return;
+			}
 	}
 
 	/**
@@ -224,8 +220,8 @@ class AppBuilder {
 			// eslint-disable-next-line no-magic-numbers
 			fs.writeFileSync ( 'package.json', JSON.stringify ( this.#packageJson, null, 4 ) );
 		}
-		catch {
-			console.error ( '\n\x1b[31mAn error occurs when writing the package.json file\x1b[0m' );
+		catch (error ) {
+			console.error ( error );
 			process.exitCode = ONE;
 		}
 	}
@@ -254,7 +250,7 @@ class AppBuilder {
 		const deltaTime = process.hrtime.bigint ( ) - this.#startTime;
 
 		/* eslint-disable-next-line no-magic-numbers */
-		const execTime = String ( deltaTime / 1000000000n ) + '.' + String ( deltaTime % 1000000000n ).substring ( 0, 3 );
+		const execTime = String ( deltaTime / 1000000000n ) + '.' + String ( deltaTime % 1000000000n ).substring ( ZERO, 3 );
 		if ( ZERO === process.exitCode ) {
 			// eslint-disable-next-line max-len
 			console.error ( `\x1b[30;42m ${this.#packageJson.name} - ${this.#packageJson.version} - build ${this.#packageJson.buildNumber} - ${new Date ( ).toString ( )}\x1b[0m` );
@@ -293,6 +289,16 @@ class AppBuilder {
 		}
 	}
 
+	#cleanDirs ( ) {
+		console.error ( '\n\nCleaning dirs' );
+		this.#appBuilderJson.cleanDirs.forEach (
+			cleanDir => {
+				fs.rmSync ( cleanDir, { recursive : true, force : true } );
+				fs.mkdirSync ( cleanDir );
+			}
+		);
+	}
+
 	/**
 	 * Clean the temporary directory
 	 */
@@ -306,14 +312,21 @@ class AppBuilder {
 	 */
 
 	async #runRollup ( ) {
-		console.error ( '\nRunning Rollup' );
-		const bundle = await rollup ( { input : this.#currentBuild.srcDir + this.#currentBuild.jsFile } );
-		await bundle.write (
-			{
-				file : this.#tmpDir + this.#currentBuild.name + '.js',
-				format : 'iife'
-			}
-		);
+		console.error ( '\n\tRunning Rollup' );
+
+		try {
+			const bundle = await rollup ( { input : this.#currentTask.srcDir + this.#currentTask.jsFile } );
+			await bundle.write (
+				{
+					file : this.#tmpDir + this.#currentTask.name + '.js',
+					format : 'iife'
+				}
+			);
+		}
+		catch ( error ) {
+			console.error ( error );
+			process.exitCode =ONE;
+		}
 	}
 
 	/**
@@ -321,8 +334,7 @@ class AppBuilder {
 	 */
 
  	async #runTerser ( ) {
-		console.error ( '\n\nRunning Terser' );
-
+		console.error ( '\n\tRunning Terser' );
 		const preamble =
 			'/**\n * ' +
 			'\n * @source: ' + this.#packageJson.sources + '\n * ' +
@@ -349,26 +361,32 @@ class AppBuilder {
 			'\n * for the JavaScript code in this page.' +
 			'\n * \n */\n\n';
 
-		let result = await minify (
-			fs.readFileSync ( this.#tmpDir + this.#currentBuild.name + '.js', 'utf8' ),
-			{
-				format : { preamble : preamble },
-				mangle : true,
-				compress : true,
-				// eslint-disable-next-line no-magic-numbers
-				ecma : 2025
-			}
-		);
+		try {
+			let result = await minify (
+				fs.readFileSync ( this.#tmpDir + this.#currentTask.name + '.js', 'utf8' ),
+				{
+					format : { preamble : preamble },
+					mangle : true,
+					compress : true,
+					// eslint-disable-next-line no-magic-numbers
+					ecma : 2025
+				}
+			);
 
-		this.#jsHash = crypto.createHash ( 'sha384' )
-			.update ( result.code, 'utf8' )
-			.digest ( 'base64' );
+			this.#jsHash = crypto.createHash ( 'sha384' )
+				.update ( result.code, 'utf8' )
+				.digest ( 'base64' );
 
-		fs.writeFileSync (
-			this.#currentBuild.destDir + this.#currentBuild.name + '.min.js',
-			result.code,
-			'utf8'
-		);
+			fs.writeFileSync (
+				this.#currentTask.destDir + this.#currentTask.name + '.min.js',
+				result.code,
+				'utf8'
+			);
+		}
+		catch ( error ) {
+			console.error ( error );
+			process.exitCode =ONE;
+		}
 	}
 
 	/**
@@ -396,26 +414,29 @@ class AppBuilder {
 	 */
 
 	#buildStyles ( ) {
-		if ( 0 === this.#currentBuild.cssFiles ) {
-			return;
+		console.error ( '\n\tBuilding CSS' );
+
+		try {
+			let cssString = '';
+
+			this.#currentTask.cssFiles.forEach (
+				cssFile => {
+					cssString += fs.readFileSync ( this.#currentTask.srcDir + cssFile, 'utf8' );
+				}
+			);
+
+			cssString = this.#cleanCss ( cssString );
+
+			this.#cssHash = crypto.createHash ( 'sha384' )
+				.update ( cssString, 'utf8' )
+				.digest ( 'base64' );
+
+			fs.writeFileSync ( this.#currentTask.destDir + this.#currentTask.name + '.min.css', cssString );
 		}
-		console.error ( '\n\nBuilding CSS' );
-
-		let cssString = '';
-
-		this.#currentBuild.cssFiles.forEach (
-			cssFile => {
-				cssString += fs.readFileSync ( this.#currentBuild.srcDir + cssFile, 'utf8' );
-			}
-		);
-
-		cssString = this.#cleanCss ( cssString );
-
-		this.#cssHash = crypto.createHash ( 'sha384' )
-			.update ( cssString, 'utf8' )
-			.digest ( 'base64' );
-
-		fs.writeFileSync ( this.#currentBuild.destDir + this.#currentBuild.name + '.min.css', cssString );
+		catch ( error ) {
+			console.error ( error );
+			process.exitCode =ONE;
+		}
 	}
 
 	/**
@@ -426,71 +447,127 @@ class AppBuilder {
 	 */
 
 	#buildHTML ( ) {
-		if ( ! this.#currentBuild.htmlFile ) {
-			return;
-		}
+		console.error ( '\n\tBuilding HTML' );
 
-		console.error ( '\n\nBuilding HTML' );
+		try {
+			let htmlString = fs.readFileSync ( this.#currentTask.srcDir + this.#currentTask.htmlFile, 'utf8' );
 
-		let htmlString = fs.readFileSync ( this.#currentBuild.srcDir + this.#currentBuild.htmlFile, 'utf8' );
+			if ( this.#jsHash ) {
+				const scriptTag = '<script src="' + this.#currentTask.name + '.min.js' +
+				'" integrity="sha384-' + this.#jsHash + '" crossorigin="anonymous" ></script>';
+				htmlString =
+					htmlString.replaceAll ( RegExp ( '<script src="main.js" type="module"></script>', 'g' ), scriptTag )
+			}
+			if ( this.#cssHash ) {
+				const cssTag = '<link rel="stylesheet" href="' + this.#currentTask.name + '.min.css' +
+				'" integrity="sha384-' + this.#cssHash + '" crossorigin="anonymous" />';
+				htmlString =
+					htmlString.replaceAll ( RegExp ( '<link rel="stylesheet" href="EncryptDecrypt.css" />', 'g' ), cssTag );
+			}
 
-		if ( this.#jsHash ) {
-			const scriptTag = '<script src="' + this.#currentBuild.name + '.min.js' +
-			'" integrity="sha384-' + this.#jsHash + '" crossorigin="anonymous" ></script>';
 			htmlString =
-				htmlString.replaceAll ( RegExp ( '<script src="main.js" type="module"></script>', 'g' ), scriptTag )
-		}
-		if ( this.#cssHash ) {
-			const cssTag = '<link rel="stylesheet" href="' + this.#currentBuild.name + '.min.css' +
-			'" integrity="sha384-' + this.#cssHash + '" crossorigin="anonymous" />';
-			htmlString =
-				htmlString.replaceAll ( RegExp ( '<link rel="stylesheet" href="EncryptDecrypt.css" />', 'g' ), cssTag );
-		}
+				htmlString.replaceAll ( /<!--.*?-->/g, '' )
+					.replaceAll ( /\r\n|\r|\n/g, ' ' )
+					.replaceAll ( /\t/g, ' ' )
+					.replaceAll ( / {2,}/g, ' ' );
 
-		htmlString =
-			htmlString.replaceAll ( /<!--.*?-->/g, '' )
-				.replaceAll ( /\r\n|\r|\n/g, ' ' )
-				.replaceAll ( /\t/g, ' ' )
-				.replaceAll ( / {2,}/g, ' ' );
+			fs.writeFileSync ( this.#currentTask.destDir + this.#currentTask.htmlFile, htmlString );
+		}
+		catch ( error ) {
+			console.error ( error );
+			process.exitCode =ONE;
+		}
+	}
 
-		fs.writeFileSync ( this.#currentBuild.destDir + this.#currentBuild.htmlFile, htmlString );
+	/**
+	 * Copy files...
+	 */
+
+	#copyFiles ( ) {
+		console.error ( '\n\tcopying files' );
+		try {
+			this.#currentTask.copyFiles.forEach (
+				fileDesc => {
+					const stat = fs.lstatSync ( fileDesc.src );
+					if ( stat.isDirectory ( ) ) {
+						fs.cpSync ( fileDesc.src, fileDesc.dest, { recursive : true } );
+					} else if ( stat.isFile ( ) ) {
+						fs.copyFileSync ( fileDesc.src, fileDesc.dest );
+					}
+				}
+			)
+		}
+		catch ( error ) {
+			console.error ( error );
+			process.exitCode =ONE;
+		}
 	}
 
 	/**
 	 * Coming soon
 	 */
 
-	async #buildCurrent ( ) {
+	async #buildTask ( ) {
+		console.error ( '\n\nBuilding task ' + this.#currentTask.name );
 		this.#cssHash = null;
 		this.#jsHash = null;
 		this.#cleanTmp ( );
-		this.#currentBuild.srcDir = this.#validateDir ( this.#currentBuild.srcDir );
-		if ( ! this.#currentBuild.srcDir ) {
+
+		this.#currentTask.srcDir = this.#validateDir ( this.#currentTask.srcDir );
+		if ( ! this.#currentTask.srcDir ) {
 			console.error ( 'Invalid path for the --src parameter \x1b[31m%s\x1b[0m' );
 			process.exitCode = ONE;
 		}
-		this.#currentBuild.destDir = this.#validateDir ( this.#currentBuild.destDir );
-		if ( ! this.#currentBuild.destDir ) {
+		this.#currentTask.destDir = this.#validateDir ( this.#currentTask.destDir );
+		if ( ! this.#currentTask.destDir ) {
 			console.error ( 'Invalid path for the --dest parameter \x1b[31m%s\x1b[0m' );
 			process.exitCode = ONE;
 		}
+
 		if ( ONE === process.exitCode ) {
 			return;
 		}
 
-		fs.mkdirSync ( this.#tmpDir );
-		await this.#runRollup ( );
-		await this.#runTerser ( );
-		this.#cleanTmp ( );
-		this.#buildStyles ( );
-		this.#buildHTML ( );
+		if ( this.#currentTask.jsFile ) {
+			fs.mkdirSync ( this.#tmpDir );
+			await this.#runRollup ( );
+			if ( ONE === process.exitCode ) {
+				return;
+			}
+			await this.#runTerser ( );
+			if ( ONE === process.exitCode ) {
+				return;
+			}
+			this.#cleanTmp ( );
+		}
+
+		if ( ZERO !== this.#currentTask.cssFiles.length ) {
+			this.#buildStyles ( );
+			if ( ONE === process.exitCode ) {
+				return;
+			}
+		}
+
+		if ( this.#currentTask.htmlFile ) {
+			this.#buildHTML ( );
+			if ( ONE === process.exitCode ) {
+				return;
+			}
+		}
+
+		if ( ZERO !== this.#currentTask.copyFiles.length ) {
+			this.#copyFiles ( );
+			if ( ONE === process.exitCode ) {
+				return;
+			}
+		}
 	}
 
 	/**
 	 * Build the app
 	 */
 
-	async buildAll ( ) {
+	async build ( ) {
 
 		this.#readPackage ( );
 		if ( ONE === process.exitCode ) {
@@ -506,15 +583,20 @@ class AppBuilder {
 			return;
 		}
 
+		this.#cleanDirs ( );
+
 		await this.#runESLint ( );
 		if ( ONE === process.exitCode ) {
 			this.#end ( );
 			return;
 		}
 
-		for ( const build of  this.#appBuilderJson.builds ) {
-				this.#currentBuild = build; 
-				await this.#buildCurrent ( );
+		for ( const task of  this.#appBuilderJson.tasks ) {
+				this.#currentTask = task; 
+				await this.#buildTask ( );
+				if ( ONE === process.exitCode ) {
+					break;
+				}
 		}
 
 		this.#end ( );
@@ -529,6 +611,6 @@ class AppBuilder {
 	}
 }
 
-new AppBuilder ( ).buildAll ( );
+new AppBuilder ( ).build ( );
 
 /* --- End of file --------------------------------------------------------------------------------------------------------- */
