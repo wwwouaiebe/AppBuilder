@@ -23,13 +23,16 @@ Doc reviewed ...
 */
 /* ------------------------------------------------------------------------------------------------------------------------- */
 
+/* eslint-disable max-lines */
+
 import process from 'process';
 import fs from 'fs';
 import crypto from 'crypto';
 import { ESLint } from 'eslint';
 import { rollup } from 'rollup';
 import { minify } from 'terser';
-import stylelint from "stylelint";
+import stylelint from 'stylelint';
+
 /**
  * Simple constant for 0
  * @type {Number}
@@ -84,7 +87,7 @@ class AppBuilder {
 	 * The css tags that have to be added in the next html file
 	 * @type {String}
 	 */
-	
+
 	#cssTags;
 
 	/**
@@ -107,33 +110,6 @@ class AppBuilder {
 	 */
 
 	#tasks;
-
-    /**
-	Validate a dir:
-	- Verify that the dir exists on the computer
-	- verify that the dir is a directory
-	- complete the dir with a \
-	@param {String} dir The path to validate
-	@returns {String|null} the validated dir or null if the dir is invalid
-	*/
-
-	#validateDir ( dir ) {
-		let returnDir = dir;
-		if ( '' === returnDir ) {
-			return null;
-		}
-
-		try {
-			if ( ! fs.existsSync ( returnDir ) ) {
-				fs.mkdirSync ( returnDir )
-			}
-			return returnDir;
-		}
-		catch ( error ) {
-			console.error ( error );
-			return null;
-		}
-	}
 
 	/**
 	 * Read the config parameters
@@ -175,13 +151,11 @@ class AppBuilder {
 			this.#packageJson = JSON.parse ( fs.readFileSync ( 'package.json' ) );
 			this.#packageJson.buildNumber ++;
 			Object.freeze ( this.#packageJson );
-			return;
 		}
 		catch ( error ) {
 			console.error ( error );
 			process.exitCode = ONE;
-			return;
-			}
+		}
 	}
 
 	/**
@@ -197,7 +171,7 @@ class AppBuilder {
 			// eslint-disable-next-line no-magic-numbers
 			fs.writeFileSync ( 'package.json', JSON.stringify ( this.#packageJson, null, 4 ) );
 		}
-		catch (error ) {
+		catch ( error ) {
 			console.error ( error );
 			process.exitCode = ONE;
 		}
@@ -248,19 +222,20 @@ class AppBuilder {
 			const eslint = new ESLint (
 				 {
 					fix : true,
-					fixTypes : [ 'directive', 'problem', 'suggestion', 'layout' ]
+					fixTypes : [ 'directive', 'problem', 'suggestion', 'layout' ],
+					overrideConfigFile : '../AppBuilder/src/eslint.config.js'
 				}
 			);
-			const results = await eslint.lintFiles (  this.#currentTask.ESLintFiles );
+			const results = await eslint.lintFiles ( this.#currentTask.ESLintFiles );
 			await ESLint.outputFixes ( results );
 			const formatter = await eslint.loadFormatter ( 'stylish' );
 			const resultText = formatter.format ( results );
-			let errorCount = 0
-			results.forEach ( 
+			console.error ( resultText );
+			let errorCount = 0;
+			results.forEach (
 				result => errorCount += result.errorCount
 			);
 			if ( ZERO !== errorCount ) {
-				console.error ( resultText );
 				process.exitCode = ONE;
 			}
 		}
@@ -276,8 +251,8 @@ class AppBuilder {
 
 	async #runStyleLint ( ) {
 		try {
-			const { default : rules }  = await import ( './StyleLintConfig.js' );
-			const result = await stylelint.lint(
+			const { default : rules } = await import ( './StyleLintConfig.js' );
+			const result = await stylelint.lint (
 				{
 					files : this.#currentTask.styleLintFiles,
 					config : rules,
@@ -289,7 +264,7 @@ class AppBuilder {
 				if ( MINUS_ONE !== result.report.indexOf ( 'error' ) ) {
 					process.exitCode = ONE;
 				}
-		}
+			}
 		}
 		catch ( error ) {
 			console.error ( error );
@@ -317,9 +292,47 @@ class AppBuilder {
 	 */
 
 	#writeFile ( fileName, fileContent ) {
-			const dirDest = fileName.slice ( 0, fileName.lastIndexOf ( '/' ) + 1 );
-			fs.mkdirSync ( dirDest, { recursive : true } );
-			fs.writeFileSync ( fileName, fileContent, 'utf8' );
+		const dirDest = fileName.slice ( ZERO, fileName.lastIndexOf ( '/' ) + ONE );
+		fs.mkdirSync ( dirDest, { recursive : true } );
+		fs.writeFileSync ( fileName, fileContent, 'utf8' );
+	}
+
+	/**
+	 * get the preamble to add to js, css and html files
+	 * @param {string} docType the doc type for witch the preamble is created (must be 'html' or 'css' or 'JavaScript')
+	 * @returns {string } the preamble to use
+	 */
+
+	#getPreamble ( docType ) {
+
+		const preamble =
+			( 'html' === docType ? '<!--' : '/**' ) +
+			'\n * ' +
+			'\n * @source: ' + this.#packageJson.sources + '\n * ' +
+			'\n * @licstart  The following is the entire license notice for the' +
+			'\n * ' + docType + ' code in this page.\n * \n * ' + this.#packageJson.name + ' - version ' +
+			this.#packageJson.version +
+			'\n * Build ' + this.#packageJson.buildNumber + ' - ' + new Date ( ).toString ( ) +
+			'\n * Copyright 2019 ' + new Date ( ).getFullYear ( ) + ' wwwouaiebe ' +
+			'\n * Contact: https://www.ouaie.be/' +
+			'\n * License: ' + this.#packageJson.license +
+			'\n * \n * The ' + docType + ' code in this page is free software: you can' +
+			'\n * redistribute it and/or modify it under the terms of the GNU' +
+			'\n * General Public License (GNU GPL) as published by the Free Software' +
+			'\n * Foundation, either version 3 of the License, or (at your option)' +
+			'\n * any later version.  The code is distributed WITHOUT ANY WARRANTY;' +
+			'\n * without even the implied warranty of MERCHANTABILITY or FITNESS' +
+			'\n * FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.' +
+			'\n * \n * As additional permission under GNU GPL version 3 section 7, you' +
+			'\n * may distribute non-source (e.g., minimized or compacted) forms of' +
+			'\n * that code without the copy of the GNU GPL normally required by' +
+			'\n * section 4, provided you include this license notice and a URL' +
+			'\n * through which recipients can access the Corresponding Source.' +
+			'\n * \n * @licend  The above is the entire license notice' +
+			'\n * for the ' + docType + ' code in this page.' +
+			'\n * \n' + ( 'html' === docType ? '-->' : '*/' ) + '\n\n';
+
+		return preamble;
 	}
 
 	/**
@@ -327,7 +340,7 @@ class AppBuilder {
 	 */
 
 	async #runRollupAndTerser ( ) {
-		let rollupCode;
+		let rollupCode = '';
 		try {
 			const bundle = await rollup ( { input : this.#currentTask.jsFile.src } );
 			const result = await bundle.generate (
@@ -343,37 +356,11 @@ class AppBuilder {
 			return;
 		}
 
-		const preamble =
-			'/**\n * ' +
-			'\n * @source: ' + this.#packageJson.sources + '\n * ' +
-			'\n * @licstart  The following is the entire license notice for the' +
-			'\n * JavaScript code in this page.\n * \n * ' + this.#packageJson.name + ' - version ' +
-			this.#packageJson.version +
-			'\n * Build ' + this.#packageJson.buildNumber + ' - ' + new Date ( ).toString ( ) +
-			'\n * Copyright 2019 ' + new Date ( ).getFullYear ( ) + ' wwwouaiebe ' +
-			'\n * Contact: https://www.ouaie.be/' +
-			'\n * License: ' + this.#packageJson.license +
-			'\n * \n * The JavaScript code in this page is free software: you can' +
-			'\n * redistribute it and/or modify it under the terms of the GNU' +
-			'\n * General Public License (GNU GPL) as published by the Free Software' +
-			'\n * Foundation, either version 3 of the License, or (at your option)' +
-			'\n * any later version.  The code is distributed WITHOUT ANY WARRANTY;' +
-			'\n * without even the implied warranty of MERCHANTABILITY or FITNESS' +
-			'\n * FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.' +
-			'\n * \n * As additional permission under GNU GPL version 3 section 7, you' +
-			'\n * may distribute non-source (e.g., minimized or compacted) forms of' +
-			'\n * that code without the copy of the GNU GPL normally required by' +
-			'\n * section 4, provided you include this license notice and a URL' +
-			'\n * through which recipients can access the Corresponding Source.' +
-			'\n * \n * @licend  The above is the entire license notice' +
-			'\n * for the JavaScript code in this page.' +
-			'\n * \n */\n\n';
-
 		try {
 			let result = await minify (
 				rollupCode,
 				{
-					format : { preamble : preamble },
+					format : { preamble : this.#getPreamble ( 'JavaScript' ) },
 					mangle : true,
 					compress : true,
 					// eslint-disable-next-line no-magic-numbers
@@ -385,12 +372,12 @@ class AppBuilder {
 			const jsHash = crypto.createHash ( 'sha384' )
 				.update ( result.code, 'utf8' )
 				.digest ( 'base64' );
-			this.#jsTags += '<script src="' + this.#currentTask.jsFile.htmlPath  +
+			this.#jsTags += '<script src="' + this.#currentTask.jsFile.htmlPath +
 				'" integrity="sha384-' + jsHash + '" crossorigin="anonymous" ></script>';
 		}
 		catch ( error ) {
 			console.error ( error );
-			process.exitCode =ONE;
+			process.exitCode = ONE;
 		}
 	}
 
@@ -428,6 +415,7 @@ class AppBuilder {
 			);
 			if ( 'release' === this.#type ) {
 				cssString = this.#cleanCss ( cssString );
+				cssString = this.#getPreamble ( 'css' ) + cssString;
 			}
 
 			this.#writeFile ( this.#currentTask.cssFile.dest, cssString );
@@ -463,16 +451,18 @@ class AppBuilder {
 
 			if ( '' !== this.#jsTags ) {
 				htmlString =
-					htmlString.replaceAll ( RegExp ( '<script></script>', 'g' ), this.#jsTags )
+					htmlString.replaceAll ( RegExp ( '<script></script>', 'g' ), this.#jsTags );
 				this.#jsTags = '';
 			}
 
-			htmlString =
-				htmlString.replaceAll ( /<!--.*?-->/g, '' )
-					.replaceAll ( /\r\n|\r|\n/g, ' ' )
-					.replaceAll ( /\t/g, ' ' )
-					.replaceAll ( / {2,}/g, ' ' );
-
+			if ( 'release' === this.#type ) {
+				htmlString =
+					htmlString.replaceAll ( /<!--.*?-->/g, '' )
+						.replaceAll ( /\r\n|\r|\n/g, ' ' )
+						.replaceAll ( /\t/g, ' ' )
+						.replaceAll ( / {2,}/g, ' ' );
+				htmlString = this.#getPreamble ( 'html' ) + htmlString;
+			}
 			this.#writeFile ( this.#currentTask.htmlFile.dest, htmlString );
 		}
 		catch ( error ) {
@@ -492,13 +482,14 @@ class AppBuilder {
 					const stat = fs.lstatSync ( fileDesc.src );
 					if ( stat.isDirectory ( ) ) {
 						fs.cpSync ( fileDesc.src, fileDesc.dest, { recursive : true } );
-					} else if ( stat.isFile ( ) ) {
-						const dirDest = fileDesc.dest.slice ( 0, fileDesc.dest.lastIndexOf ( '/' ) + 1 );
+					}
+					else if ( stat.isFile ( ) ) {
+						const dirDest = fileDesc.dest.slice ( ZERO, fileDesc.dest.lastIndexOf ( '/' ) + ONE );
 						fs.mkdirSync ( dirDest, { recursive : true } );
 						fs.copyFileSync ( fileDesc.src, fileDesc.dest );
 					}
 				}
-			)
+			);
 		}
 		catch ( error ) {
 			console.error ( error );
@@ -516,35 +507,34 @@ class AppBuilder {
 
 		for ( const taskProperty in this.#currentTask ) {
 			switch ( taskProperty ) {
-				case "type" :
-				case "name" :
-					break;
-				case "ESLintFiles"	: 
-					await this.#runESLint ( );
-					break;
-				case "styleLintFiles":
-					console.log ( )
-					await this.#runStyleLint ( );
-					break;
-				case "cleanDirs" :
-					this.#cleanDirs ( );
-					break;
-				case "jsFile" : 
-					await this.#runRollupAndTerser ( );
-					break;
-				case "copyFiles" : 
-					this.#copyFiles ( );
-					break;
-				case "cssFile" : 
-					this.#buildStyles ( );
-					break;
-				case "htmlFile" :
-					this.#buildHTML ( );
-					break;
-				default :
-					console.error ( 'No procedure found for ' + taskProperty);
-					process.exitCode = ONE;
-					break;
+			case 'type' :
+			case 'name' :
+				break;
+			case 'ESLintFiles'	:
+				await this.#runESLint ( );
+				break;
+			case 'styleLintFiles' :
+				await this.#runStyleLint ( );
+				break;
+			case 'cleanDirs' :
+				this.#cleanDirs ( );
+				break;
+			case 'jsFile' :
+				await this.#runRollupAndTerser ( );
+				break;
+			case 'copyFiles' :
+				this.#copyFiles ( );
+				break;
+			case 'cssFile' :
+				this.#buildStyles ( );
+				break;
+			case 'htmlFile' :
+				this.#buildHTML ( );
+				break;
+			default :
+				console.error ( 'No procedure found for ' + taskProperty );
+				process.exitCode = ONE;
+				break;
 			}
 			if ( ONE === process.exitCode ) {
 				break;
