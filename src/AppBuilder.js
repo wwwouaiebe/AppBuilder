@@ -60,13 +60,6 @@ const MINUS_ONE = -1;
 class AppBuilder {
 
 	/**
-	 * A temporary directory
-	 * @type {String}
-	 */
-
-	#tmpDir	= './tmp/';
-
-	/**
 	 * A boolean indicationg that the app must be build in debug mode (= without rollup and terser)
 	 * @type {Boolean}
 	 */
@@ -88,25 +81,18 @@ class AppBuilder {
 	#packageJson;
 
 	/**
-	 * The contains of the AppBuilder.json file
-	 * @type {Object}
+	 * The css tags that have to be added in the next html file
+	 * @type {String}
 	 */
-
-	#appBuilderJson;
+	
+	#cssTags;
 
 	/**
-	 * The sha386 hash for the css file
+	 * The js tags that have to be added in the next html file
 	 * @type {String}
 	 */
 
-	#cssHash;
-
-	/**
-	 * The sha386 hash for the js file
-	 * @type {String}
-	 */
-
-	#jsHash;
+	#jsTags;
 
 	/**
 	 * The current build
@@ -114,6 +100,13 @@ class AppBuilder {
 	 */
 
 	#currentTask;
+
+	/**
+	 * The content of the file AppBuilder.json
+	 * @type {Object}
+	 */
+
+	#tasks;
 
     /**
 	Validate a dir:
@@ -151,7 +144,7 @@ class AppBuilder {
 		process.exitCode = ZERO;
 
 		try {
-			this.#appBuilderJson = JSON.parse ( fs.readFileSync ( './AppBuilder.json', 'utf8' ) );
+			this.#tasks = JSON.parse ( fs.readFileSync ( './AppBuilder.json', 'utf8' ) );
 		}
 		catch ( error ) {
 			console.error ( error );
@@ -217,7 +210,7 @@ class AppBuilder {
 	#start ( ) {
 		this.#startTime = process.hrtime.bigint ( );
 		// eslint-disable-next-line max-len
-		console.error ( `\x1b[30;101m Start build of  ${this.#packageJson.name} - ${this.#packageJson.version} - ${new Date ( ).toString ( )}\x1b[0m` );
+		console.error ( `\x1b[30;101m Start build of  ${this.#packageJson.name} - ${this.#packageJson.version} - ${new Date ( ).toString ( )}\x1b[0m\n\n` );
 	}
 
 	/**
@@ -251,11 +244,6 @@ class AppBuilder {
 	 */
 
 	async #runESLint ( ) {
-		if ( ( ! this.#appBuilderJson.ESLintFiles ) || ZERO === this.#appBuilderJson.ESLintFiles.length ) {
-			return;
-		}
-
-		console.error ( '\n\nRunning ESLint' );
 		try {
 			const eslint = new ESLint (
 				 {
@@ -263,16 +251,16 @@ class AppBuilder {
 					fixTypes : [ 'directive', 'problem', 'suggestion', 'layout' ]
 				}
 			);
-			const results = await eslint.lintFiles (  this.#appBuilderJson.ESLintFiles );
+			const results = await eslint.lintFiles (  this.#currentTask.ESLintFiles );
 			await ESLint.outputFixes ( results );
 			const formatter = await eslint.loadFormatter ( 'stylish' );
 			const resultText = formatter.format ( results );
-			console.error ( resultText );
 			let errorCount = 0
 			results.forEach ( 
 				result => errorCount += result.errorCount
 			);
 			if ( ZERO !== errorCount ) {
+				console.error ( resultText );
 				process.exitCode = ONE;
 			}
 		}
@@ -287,31 +275,26 @@ class AppBuilder {
 	 */
 
 	async #runStyleLint ( ) {
-		if ( ( ! this.#appBuilderJson.styleLintFiles ) || ZERO === this.#appBuilderJson.styleLintFiles.length ) {
-			return;
-		}
-
-		console.error ( '\n\nRunning StyleLint' );
-
 		try {
 			const { default : rules }  = await import ( './StyleLintConfig.js' );
 			const result = await stylelint.lint(
 				{
-					files : this.#appBuilderJson.styleLintFiles,
+					files : this.#currentTask.styleLintFiles,
 					config : rules,
 					formatter : 'string'
 				}
 			);
-			console.error ( result.report );
-			if ( MINUS_ONE !== result.report.indexOf ( 'error' ) ) {
-				process.exitCode = ONE;
-			}
+			if ( '' !== result.report ) {
+				console.error ( result.report );
+				if ( MINUS_ONE !== result.report.indexOf ( 'error' ) ) {
+					process.exitCode = ONE;
+				}
+		}
 		}
 		catch ( error ) {
 			console.error ( error );
 			process.exitCode = ONE;
 		}
-
 	}
 
 	/**
@@ -319,7 +302,6 @@ class AppBuilder {
 	 */
 
 	#cleanDirs ( ) {
-		console.error ( '\n\nCleaning dirs' );
 		this.#currentTask.cleanDirs.forEach (
 			cleanDir => {
 				fs.rmSync ( cleanDir, { recursive : true, force : true } );
@@ -329,41 +311,38 @@ class AppBuilder {
 	}
 
 	/**
-	 * Clean the temporary directory
+	 * Write something in a file, creating all the necessary directories
+	 * @param {String} fileName The name of the file
+	 * @param {String} fileContent The content of the file
 	 */
 
-	#cleanTmp ( ) {
-		fs.rmSync ( this.#tmpDir, { recursive : true, force : true } );
+	#writeFile ( fileName, fileContent ) {
+			const dirDest = fileName.slice ( 0, fileName.lastIndexOf ( '/' ) + 1 );
+			fs.mkdirSync ( dirDest, { recursive : true } );
+			fs.writeFileSync ( fileName, fileContent, 'utf8' );
 	}
 
 	/**
-	 * Run Rollup
+	 * Run Rollup and Terser
 	 */
 
-	async #runRollup ( ) {
-		console.error ( '\n\tRunning Rollup' );
-
+	async #runRollupAndTerser ( ) {
+		let rollupCode;
 		try {
-			const bundle = await rollup ( { input : this.#currentTask.jsFile } );
-			await bundle.write (
+			const bundle = await rollup ( { input : this.#currentTask.jsFile.src } );
+			const result = await bundle.generate (
 				{
-					file : this.#tmpDir + this.#currentTask.name + '.js',
 					format : 'iife'
 				}
 			);
+			rollupCode = result.output [ ZERO ].code;
 		}
 		catch ( error ) {
 			console.error ( error );
-			process.exitCode =ONE;
+			process.exitCode = ONE;
+			return;
 		}
-	}
 
-	/**
-	 * Run Terser and compute the hash for the js file
-	 */
-
- 	async #runTerser ( ) {
-		console.error ( '\n\tRunning Terser' );
 		const preamble =
 			'/**\n * ' +
 			'\n * @source: ' + this.#packageJson.sources + '\n * ' +
@@ -392,7 +371,7 @@ class AppBuilder {
 
 		try {
 			let result = await minify (
-				fs.readFileSync ( this.#tmpDir + this.#currentTask.name + '.js', 'utf8' ),
+				rollupCode,
 				{
 					format : { preamble : preamble },
 					mangle : true,
@@ -401,16 +380,13 @@ class AppBuilder {
 					ecma : 2025
 				}
 			);
+			this.#writeFile ( this.#currentTask.jsFile.dest, result.code );
 
-			this.#jsHash = crypto.createHash ( 'sha384' )
+			const jsHash = crypto.createHash ( 'sha384' )
 				.update ( result.code, 'utf8' )
 				.digest ( 'base64' );
-
-			fs.writeFileSync (
-				this.#currentTask.destDir + this.#currentTask.name + '.min.js',
-				result.code,
-				'utf8'
-			);
+			this.#jsTags += '<script src="' + this.#currentTask.jsFile.htmlPath  +
+				'" integrity="sha384-' + jsHash + '" crossorigin="anonymous" ></script>';
 		}
 		catch ( error ) {
 			console.error ( error );
@@ -443,30 +419,29 @@ class AppBuilder {
 	 */
 
 	#buildStyles ( ) {
-		console.error ( '\n\tBuilding CSS' );
-
 		try {
 			let cssString = '';
-
-			this.#currentTask.cssFiles.forEach (
+			this.#currentTask.cssFile.src.forEach (
 				cssFile => {
 					cssString += fs.readFileSync ( cssFile, 'utf8' );
 				}
 			);
-
 			if ( 'release' === this.#type ) {
 				cssString = this.#cleanCss ( cssString );
 			}
 
-			this.#cssHash = crypto.createHash ( 'sha384' )
+			this.#writeFile ( this.#currentTask.cssFile.dest, cssString );
+
+			const cssHash = crypto.createHash ( 'sha384' )
 				.update ( cssString, 'utf8' )
 				.digest ( 'base64' );
 
-			fs.writeFileSync ( this.#currentTask.destDir + this.#currentTask.name + '.min.css', cssString );
+			this.#cssTags += '<link rel="stylesheet" href="' + this.#currentTask.cssFile.htmlPath +
+			'" integrity="sha384-' + cssHash + '" crossorigin="anonymous" />';
 		}
 		catch ( error ) {
 			console.error ( error );
-			process.exitCode =ONE;
+			process.exitCode = ONE;
 		}
 	}
 
@@ -478,22 +453,18 @@ class AppBuilder {
 	 */
 
 	#buildHTML ( ) {
-		console.error ( '\n\tBuilding HTML' );
-
 		try {
-			let htmlString = fs.readFileSync ( this.#currentTask.htmlFile, 'utf8' );
-
-			if ( this.#jsHash ) {
-				const scriptTag = '<script src="' + this.#currentTask.name + '.min.js' +
-				'" integrity="sha384-' + this.#jsHash + '" crossorigin="anonymous" ></script>';
+			let htmlString = fs.readFileSync ( this.#currentTask.htmlFile.src, 'utf8' );
+			if ( '' !== this.#cssTags ) {
 				htmlString =
-					htmlString.replaceAll ( RegExp ( '<script src="main.js" type="module"></script>', 'g' ), scriptTag )
+						htmlString.replaceAll ( RegExp ( '<link rel="stylesheet" />', 'g' ), this.#cssTags );
+				this.#cssTags = '';
 			}
-			if ( this.#cssHash ) {
-				const cssTag = '<link rel="stylesheet" href="' + this.#currentTask.name + '.min.css' +
-				'" integrity="sha384-' + this.#cssHash + '" crossorigin="anonymous" />';
+
+			if ( '' !== this.#jsTags ) {
 				htmlString =
-					htmlString.replaceAll ( RegExp ( '<link rel="stylesheet" href="EncryptDecrypt.css" />', 'g' ), cssTag );
+					htmlString.replaceAll ( RegExp ( '<script></script>', 'g' ), this.#jsTags )
+				this.#jsTags = '';
 			}
 
 			htmlString =
@@ -502,11 +473,11 @@ class AppBuilder {
 					.replaceAll ( /\t/g, ' ' )
 					.replaceAll ( / {2,}/g, ' ' );
 
-			fs.writeFileSync ( this.#currentTask.destDir + this.#currentTask.htmlFile.split ( '/') .pop ( ), htmlString );
+			this.#writeFile ( this.#currentTask.htmlFile.dest, htmlString );
 		}
 		catch ( error ) {
 			console.error ( error );
-			process.exitCode =ONE;
+			process.exitCode = ONE;
 		}
 	}
 
@@ -515,7 +486,6 @@ class AppBuilder {
 	 */
 
 	#copyFiles ( ) {
-		console.error ( '\n\tcopying files' );
 		try {
 			this.#currentTask.copyFiles.forEach (
 				fileDesc => {
@@ -532,70 +502,55 @@ class AppBuilder {
 		}
 		catch ( error ) {
 			console.error ( error );
-			process.exitCode =ONE;
+			process.exitCode = ONE;
 		}
 	}
 
 	/**
-	 * Coming soon
+	 * Run a task...
 	 */
 
-	async #buildTask ( ) {
-		if ( this.#type !== this.#currentTask.type ) {
-			return
-		}
+	async #runTask ( ) {
 
-		if ( this.#currentTask.cleanDirs ) {
-			this.#cleanDirs ( );
-		}
-		console.error ( '\n\nBuilding task ' + this.#currentTask.name );
-		this.#cssHash = null;
-		this.#jsHash = null;
-		this.#cleanTmp ( );
+		console.error ( '\t' + ( this.#currentTask.name || 'Unnamed task' ) + '\n\n' );
 
-		this.#currentTask.destDir = this.#validateDir ( this.#currentTask.destDir );
-		if ( ! this.#currentTask.destDir ) {
-			console.error ( 'Invalid path for the --dest parameter \x1b[31m%s\x1b[0m' );
-			process.exitCode = ONE;
-		}
-
-		if ( ONE === process.exitCode ) {
-			return;
-		}
-
-		if ( this.#currentTask.jsFile) {
-			fs.mkdirSync ( this.#tmpDir );
-			await this.#runRollup ( );
-			if ( ONE === process.exitCode ) {
-				return;
+		for ( const taskProperty in this.#currentTask ) {
+			switch ( taskProperty ) {
+				case "type" :
+				case "name" :
+					break;
+				case "ESLintFiles"	: 
+					await this.#runESLint ( );
+					break;
+				case "styleLintFiles":
+					console.log ( )
+					await this.#runStyleLint ( );
+					break;
+				case "cleanDirs" :
+					this.#cleanDirs ( );
+					break;
+				case "jsFile" : 
+					await this.#runRollupAndTerser ( );
+					break;
+				case "copyFiles" : 
+					this.#copyFiles ( );
+					break;
+				case "cssFile" : 
+					this.#buildStyles ( );
+					break;
+				case "htmlFile" :
+					this.#buildHTML ( );
+					break;
+				default :
+					console.error ( 'No procedure found for ' + taskProperty);
+					process.exitCode = ONE;
+					break;
 			}
-			await this.#runTerser ( );
 			if ( ONE === process.exitCode ) {
-				return;
-			}
-			this.#cleanTmp ( );
-		}
-
-		if ( ZERO !== this.#currentTask.cssFiles.length ) {
-			this.#buildStyles ( );
-			if ( ONE === process.exitCode ) {
-				return;
+				break;
 			}
 		}
 
-		if ( this.#currentTask.htmlFile ) {
-			this.#buildHTML ( );
-			if ( ONE === process.exitCode ) {
-				return;
-			}
-		}
-
-		if ( ZERO !== this.#currentTask.copyFiles.length ) {
-			this.#copyFiles ( );
-			if ( ONE === process.exitCode ) {
-				return;
-			}
-		}
 	}
 
 	/**
@@ -603,6 +558,9 @@ class AppBuilder {
 	 */
 
 	async build ( ) {
+
+		this.#cssTags = '';
+		this.#jsTags = '';
 
 		this.#readPackage ( );
 		if ( ONE === process.exitCode ) {
@@ -618,24 +576,14 @@ class AppBuilder {
 			return;
 		}
 
-		await this.#runESLint ( );
-		if ( ONE === process.exitCode ) {
-			this.#end ( );
-			return;
-		}
-
-		await this.#runStyleLint ( );
-		if ( ONE === process.exitCode ) {
-			this.#end ( );
-			return;
-		}
-
-		for ( const task of  this.#appBuilderJson.tasks ) {
-				this.#currentTask = task; 
-				await this.#buildTask ( );
-				if ( ONE === process.exitCode ) {
-					break;
-				}
+		for ( const task of this.#tasks ) {
+			if ( ! task.type || task.type === this.#type ) {
+				this.#currentTask = task;
+				await this.#runTask ( );
+			}
+			if ( ONE === process.exitCode ) {
+				break;
+			}
 		}
 
 		this.#end ( );
