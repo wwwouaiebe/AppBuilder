@@ -18,7 +18,7 @@ export default [
 			"no-implicit-globals" :  [ "error" ],
 			"no-labels" : [ "error" ],
 			"no-lone-blocks" : [ "error" ],
-			"no-magic-numbers" : [ "warn", { "ignoreArrayIndexes" : false, "detectObjects" : true } ],
+			"no-magic-numbers" : [ "warn", { "ignore" : [ -1, 0, 1 ], "ignoreArrayIndexes" : false, "detectObjects" : true } ],
 			"no-multi-spaces" : [ "warn" ],
 			"no-param-reassign" : [ "warn" ],
 			"no-self-assign" : [ "warn" ],

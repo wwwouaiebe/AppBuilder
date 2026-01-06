@@ -410,7 +410,7 @@ class AppBuilder {
 			let cssString = '';
 			this.#currentTask.cssFile.src.forEach (
 				cssFile => {
-					cssString += fs.readFileSync ( cssFile, 'utf8' );
+					cssString += '\n/* ' + cssFile + ' */\n\n' + fs.readFileSync ( cssFile, 'utf8' );
 				}
 			);
 			if ( 'release' === this.#type ) {

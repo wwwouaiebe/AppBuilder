@@ -31,10 +31,7 @@ export default
 		'media-type-no-deprecated': true,
 		'named-grid-areas-no-invalid': true,
 		'nesting-selector-no-missing-scoping-root': true,
-
-		/*
 		'no-descending-specificity': true,
-		*/
 		'no-duplicate-at-import-rules': true,
 		'no-duplicate-selectors': true,
 		'no-empty-source': true,
@@ -127,14 +124,12 @@ export default
 		'hue-degree-notation': 'angle',
 		'import-notation': 'url',
 		'keyframe-selector-notation': 'percentage-unless-within-keyword-only-block',
-		/*
 		'keyframes-name-pattern': [
 			'^([a-z][a-z0-9]*)(-[a-z0-9]+)*$',
 			{
 				message: (name) => `Expected keyframe name "${name}" to be kebab-case`,
 			},
 		],
-		*/
 		'layer-name-pattern': [
 			'^([a-z][a-z0-9]*)([.-][a-z0-9]+)*$',
 			{
@@ -160,7 +155,6 @@ export default
 			},
 		],
 		'selector-attribute-quotes': 'always',
-		/*
 		'selector-class-pattern': [
 			'^([a-z][a-z0-9]*)(-[a-z0-9]+)*$',
 			{
@@ -173,7 +167,6 @@ export default
 				message: (selector) => `Expected id selector "${selector}" to be kebab-case`,
 			},
 		],
-		*/
 		'selector-no-vendor-prefix': true,
 		'selector-not-notation': 'complex',
 		'selector-pseudo-element-colon-notation': 'double',
