@@ -345,7 +345,7 @@ class AppBuilder {
 			const bundle = await rollup ( { input : this.#currentTask.jsFile.src } );
 			const result = await bundle.generate (
 				{
-					format : 'iife'
+					format : 'module'
 				}
 			);
 			rollupCode = result.output [ ZERO ].code;
@@ -364,7 +364,7 @@ class AppBuilder {
 					mangle : true,
 					compress : true,
 					// eslint-disable-next-line no-magic-numbers
-					ecma : 2025
+					ecma : 2026
 				}
 			);
 			this.#writeFile ( this.#currentTask.jsFile.dest, result.code );
@@ -372,7 +372,7 @@ class AppBuilder {
 			const jsHash = crypto.createHash ( 'sha384' )
 				.update ( result.code, 'utf8' )
 				.digest ( 'base64' );
-			this.#jsTags += '<script src="' + this.#currentTask.jsFile.htmlPath +
+			this.#jsTags += '<script type="module" src="' + this.#currentTask.jsFile.htmlPath +
 				'" integrity="sha384-' + jsHash + '" crossorigin="anonymous" ></script>';
 		}
 		catch ( error ) {
